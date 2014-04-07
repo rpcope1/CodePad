@@ -9,7 +9,7 @@ I go, but please feel free to submit bug reports and leave suggestions. I would 
 own workhorse. :)
 
 
-# Requirements:
+#### Requirements:
   
   * Tkinter (for GUI)
   * Ttk (for GUI)
