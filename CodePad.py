@@ -225,7 +225,7 @@ class CodePadMainWindow(tk.Frame):
         self.viewmenu = tk.Menu(self)
         self.viewmenu.add_command(label="Find", command=self.findTextCurrent, accelerator="Ctrl+F")
         self.root.bind('<Control-Key-f>', lambda e: self.findTextCurrent())
-        self.viewmenu.add_command(label="Replace")
+        self.viewmenu.add_command(label="Replace", accelerator="Ctrl+R")
         self.viewmenu.add_separator()
         self.syntaxmenu = tk.Menu(self)
         self.syntaxmenu.add_command(label="Guess Syntax...", command=self.guessLexer)
@@ -240,9 +240,10 @@ class CodePadMainWindow(tk.Frame):
 
         #self.menubar.add_cascade(menu=self.settingsmenu, label='Settings')
 
-        self.menubar.add_command(label='Run...', command=self.runCurrent, accelerator="Alt+R")
+        self.projectmenu = tk.Menu(self)
+        self.projectmenu.add_command(label='Run...', command=self.runCurrent, accelerator="Alt+R")
         self.root.bind('<Alt-Key-r>', lambda e: self.runCurrent())
-
+        self.menubar.add_cascade(label='Project', menu=self.projectmenu)
 
         self.helpmenu = tk.Menu(self)
         self.helpmenu.add_command(label="Help Contents")
