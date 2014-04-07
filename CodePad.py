@@ -4,7 +4,7 @@
 #   All Rights Reserved
 
 __author__ = 'Robert Cope'
-__version__ = 'v0.1 (Alpha)'
+__version__ = 'v0.2 (Alpha)'
 __license__ = 'LGPL'
 
 try:
@@ -18,15 +18,20 @@ import tkSimpleDialog
 import tkMessageBox
 import tkFileDialog
 import extrawidgets
-
-
+from pygments.lexers import TextLexer, get_all_lexers, guess_lexer_for_filename, ClassNotFound, get_lexer_by_name
+import pygments_tk_text.pygtext as pygtext
+import pygments_tk_text.tkformatter as pygtkformatter
+import sys
+from functools import partial
 
 class CodePadEditor(tk.Frame):
-    def __init__(self, root, parent=None, *args, **kwargs):
+    def __init__(self, root, parent=None, lexer=TextLexer(), *args, **kwargs):
         tk.Frame.__init__(self, *args, **kwargs)
         self.root = root
         self._filename = None
         self._saved = False
+        self.editorFormatter = pygtkformatter.TkFormatter()
+        self.editorLexer = lexer
         self.parent = parent if parent else root
         self.buildTextBox()
 
@@ -34,7 +39,7 @@ class CodePadEditor(tk.Frame):
         """
             Should be called at initialization, puts the text box and scroll bars in place.
         """
-        self.textbox = extrawidgets.CustomText(self, wrap=tk.NONE)
+        self.textbox = pygtext.PygmentsText(self, self.editorLexer, self.editorFormatter, wrap=tk.NONE)
         self.textbox.grid(row=0, column=1, sticky="NSEW")
         self.textbox.tag_configure("search", background="green")
         self.grid_columnconfigure(1, weight=1)
@@ -57,13 +62,13 @@ class CodePadEditor(tk.Frame):
         self.textbox.bind("<<Change>>", self._on_change)
         self.textbox.bind("<<Configure>>", self._on_change)
 
-
     def setTextContent(self, newContent):
         """
             Clear the text box and fill it's contents.
         """
         self.textbox.delete("1.0", tk.END)
-        self.textbox.insert("1.0", newContent)
+        self.textbox.insertFormatted("end", newContent)
+        self.linenumberbox.redraw()
 
     def setSaved(self, state):
         """
@@ -99,7 +104,9 @@ class CodePadEditor(tk.Frame):
             self.textbox.delete("sel.first", "sel.last")
         except tk.TclError, e:
             pass
-        self.textbox.insert("insert", newtext)
+        self.textbox.insertFormatted("end", newtext)
+        self.linenumberbox.redraw()
+        
 
     def _on_change(self, event):
         """
@@ -112,6 +119,30 @@ class CodePadEditor(tk.Frame):
             Get the content stored in the textbox
         """
         return self.textbox.get("1.0", tk.END)
+
+    def guessLexer(self):
+        try:
+            newlexer = guess_lexer_for_filename(self.filename, self.getTextContent())
+        except ClassNotFound:
+            newlexer = TextLexer()
+        self.setLexer(newlexer)
+        return self.lexer
+
+    def setLexer(self, lexer):
+        self.editorLexer = lexer
+        self.textbox.setLexer(lexer)
+        self.textbox.reformatEverything()
+
+    def setLexerByName(self, lexername):
+        try:
+            newlexer = get_lexer_by_name(lexername.lower(), stripall=True)
+        except ClassNotFound:
+            sys.stderr.write("Something went really wrong getting the lexer...\n")
+            sys.stderr.write("Lexer name: {0}\n".format(lexername))
+            return self.lexer
+        self.setLexer(newlexer)
+        return self.lexer
+
 
     @property
     def filename(self):
@@ -137,67 +168,9 @@ class CodePadEditor(tk.Frame):
         else:
             return False
 
-
-
-class textFindWidget(tk.Toplevel):
-    BUTTONWIDTH = 15
-    def __init__(self, root, editor, parent=None, *args, **kwargs):
-        tk.Toplevel.__init__(self, root, *args, **kwargs)
-        self.root = root
-        self.editor = editor
-        self.parent = parent if parent else root
-        self.searchTextVar = tk.StringVar(self)
-
-        self.lframe = ttk.Labelframe(self, text='Find')
-        self.rowOne = tk.Frame(self.lframe)
-        tk.Label(self.rowOne, text="Search Text:").grid(row=0, column=0)
-
-        self.searchEntry = tk.Entry(self.rowOne, textvariable=self.searchTextVar, width=40)
-        self.searchEntry.grid(row=0, column=1, sticky="NSEW")
-        self.rowOne.grid(row=0, column=0, sticky="NSEW")
-        self.rowOne.grid_rowconfigure(0, weight=1)
-        self.rowOne.grid_columnconfigure(1, weight=1)
-
-        self.rowTwo = tk.Frame(self.lframe)
-        self.findButton = tk.Button(self.rowTwo, text="Find", width=self.BUTTONWIDTH, command=self.findText)
-        self.findButton.grid(row=0, column=0, sticky="NSEW")
-
-        self.closeButton = tk.Button(self.rowTwo, text="Close", command=self.destroy, width=self.BUTTONWIDTH)
-        self.closeButton.grid(row=0, column=1, sticky="NSEW")
-        self.rowTwo.grid(row=1, column=0, sticky="NSEW")
-        self.rowTwo.grid_rowconfigure(0, weight=1)
-        self.rowTwo.grid_rowconfigure(1, weight=1)
-        self.rowTwo.grid_columnconfigure(0, weight=1)
-        self.rowTwo.grid_columnconfigure(1, weight=1)
-
-        self.clearButton = tk.Button(self.rowTwo, text="Clear Highlight", width=self.BUTTONWIDTH,
-                                     command=self.clearHighlight)
-        self.clearButton.grid(row=1, column=0, sticky="NSEW")
-        self.lframe.grid(row=0, column=0, sticky="NSEW")
-
-
-    def findText(self):
-        """
-            Find and highlight all of the text that matches what we are looking for in the current editor.
-        """
-        offSetVar = tk.StringVar(self)
-        offSetVar.set("0")
-        currentpos = "0.0"
-        while currentpos:
-            startPos = "{position} + {offset}c".format(position=currentpos, offset=offSetVar.get())
-            currentpos = self.editor.textbox.search(self.searchTextVar.get(), startPos, stopindex="end",
-                                                     count=offSetVar)
-            if currentpos:
-                self.editor.textbox.tag_add("search", currentpos,
-                                    "{position} + {offset}c".format(position=currentpos, offset=offSetVar.get()))
-        return
-
-    def clearHighlight(self):
-        """
-            Clear all of the highlights form the current editor.
-        """
-        self.editor.textbox.tag_remove("search", "1.0", tk.END)
-
+    @property
+    def lexer(self):
+        return self.editorLexer
 
 class CodePadMainWindow(tk.Frame):
     def __init__(self, root, *args, **kwargs):
@@ -205,10 +178,11 @@ class CodePadMainWindow(tk.Frame):
         self.root = root
         self.openEditors = []
         self.openFiles = {}
-        self.buildMenubar()
-
         self.editorNotebook = ttk.Notebook(self)
         self.editorNotebook.enable_traversal()
+
+        self.buildMenubar()
+        self.editorNotebook.bind('<<NotebookTabChanged>>', self._onTabChange)
 
 
         self.editorNotebook.grid(row=0, column=0, sticky="NSEW")
@@ -232,6 +206,8 @@ class CodePadMainWindow(tk.Frame):
         self.filemenu.add_command(label="Save", command=self.saveFile, accelerator="Ctrl+S")
         self.root.bind('<Control-Key-s>', lambda e :self.saveFile())
         self.filemenu.add_command(label="Save as...")
+        self.filemenu.add_command(label='Close Tab', command=self.closeCurrentTab, accelerator="Ctrl+W")
+        self.root.bind('<Control-Key-w>', lambda e: self.closeCurrentTab())
         self.filemenu.add_separator()
         self.filemenu.add_command(label="Exit", command=self.root.destroy, accelerator="Ctrl+Q")
         self.root.bind('<Control-Key-q>', lambda e: self.root.destroy())
@@ -250,17 +226,23 @@ class CodePadMainWindow(tk.Frame):
         self.viewmenu.add_command(label="Find", command=self.findTextCurrent, accelerator="Ctrl+F")
         self.root.bind('<Control-Key-f>', lambda e: self.findTextCurrent())
         self.viewmenu.add_command(label="Replace")
+        self.viewmenu.add_separator()
+        self.syntaxmenu = tk.Menu(self)
+        self.syntaxmenu.add_command(label="Guess Syntax...", command=self.guessLexer)
+        self.syntaxmenu.add_separator()
+        self.syntaxsubmenus, self.syntaxoptions = self.buildSyntaxSubmenus(self.syntaxmenu)
+        self.viewmenu.add_cascade(label="Highlight Syntax...", menu=self.syntaxmenu)
         self.menubar.add_cascade(menu=self.viewmenu, label='View')
 
-        self.settingsmenu = tk.Menu(self)
-        self.settingsmenu.add_command(label="Plugins...")
+        #self.settingsmenu = tk.Menu(self)
+        #self.settingsmenu.add_command(label="Plugins...")
 
 
-        self.menubar.add_cascade(menu=self.settingsmenu, label='Settings')
+        #self.menubar.add_cascade(menu=self.settingsmenu, label='Settings')
 
         self.menubar.add_command(label='Run...', command=self.runCurrent, accelerator="Alt+R")
         self.root.bind('<Alt-Key-r>', lambda e: self.runCurrent())
-        self.menubar.add_command(label='Close Tab', command=self.closeCurrentTab)
+
 
         self.helpmenu = tk.Menu(self)
         self.helpmenu.add_command(label="Help Contents")
@@ -272,6 +254,29 @@ class CodePadMainWindow(tk.Frame):
 
         self.root.config(menu=self.menubar)
         return
+
+    def buildSyntaxSubmenus(self, rootmenu):
+        syntaxsubmenus = []
+        syntaxoptions = []
+        currentmenu = None
+        firstLetter, startLetter = None, None
+        for i, lexer in enumerate(sorted(get_all_lexers())):
+            if not i % 20:
+                if currentmenu:
+
+                    rootmenu.add_cascade(label="Submenu {0}-{1}".format(firstLetter, startLetter), menu=currentmenu)
+                currentmenu = tk.Menu(self)
+                firstLetter = lexer[0][0]
+                syntaxsubmenus.append(currentmenu)
+            startLetter = lexer[0][0]
+            newVar = tk.BooleanVar(self)
+            callback = partial(self.setLexer, lexer[0])
+            syntaxoptions.append((lexer[0], newVar, callback))
+            currentmenu.add_checkbutton(label=lexer[0], variable=newVar, command= callback)
+
+        rootmenu.add_cascade(label="Submenu {0}-{1}".format(firstLetter, startLetter), menu=currentmenu)
+        return syntaxsubmenus, syntaxoptions
+
 
     def addNewEditor(self, filename=None):
         """
@@ -293,6 +298,7 @@ class CodePadMainWindow(tk.Frame):
             ed.setFileName(filename)
             ed.setSaved(True)
             ed.setTextContent(contents)
+            ed.guessLexer()
         self.editorNotebook.add(ed, text=ed.filename, sticky="NSEW")
         self.selectEditor(ed)
         return ed
@@ -309,9 +315,11 @@ class CodePadMainWindow(tk.Frame):
             The open file callback in the file menu (also mapped to Ctrl+0). Spawns a dialog and opens a new editor if
             a file was specified. If we canceled, it does nothing.
         """
-        filename = tkFileDialog.askopenfilename(parent=self, defaultextension=".txt",
-                                                filetypes=[("Plaintext File", "*.txt"), ("Python Script", "*.py"),
-                                                           ("All Files", "*")])
+        filename = tkFileDialog.askopenfilename(parent=self,
+                                                filetypes=[("All Files", "*"), ("Plaintext File", "*.txt"),
+                                                           ("Python Script", "*.py"), ("Ruby Script", "*.rb")])
+        if not filename:
+            return
         if filename not in self.openFiles:
             oldeditor = self.getCurrentEditor()
             closeOld = self.isCurrentEmpty
@@ -326,7 +334,7 @@ class CodePadMainWindow(tk.Frame):
         """
             Grab the current focused editor instance.
         """
-        return self.openEditors[self.editorNotebook.index(self.selectEditor())]
+        return self.openEditors[self.editorNotebook.index(self.selectEditor())] if self.openEditors else None
 
     def saveFile(self):
         """
@@ -393,6 +401,38 @@ class CodePadMainWindow(tk.Frame):
             self.openFiles.pop(editor.filename)
         del editor
 
+    def _onTabChange(self, event):
+        currentEditor = self.getCurrentEditor()
+        if currentEditor:
+            currentLexer = currentEditor.lexer
+            self.setLexerSelected(currentLexer)
+        else:
+            sys.stderr.write('_onTabChange called without an open editor..')
+
+    def setLexer(self, lexername):
+        currentEditor = self.getCurrentEditor()
+        if currentEditor:
+            newLexer = currentEditor.setLexerByName(lexername)
+            self.setLexerSelected(newLexer)
+        else:
+            sys.stderr.write('setLexer called without an open editor..')
+
+    def guessLexer(self):
+        currentEditor = self.getCurrentEditor()
+        if currentEditor:
+            newLexer = currentEditor.guessLexer()
+            self.setLexerSelected(newLexer)
+        else:
+            sys.stderr.write('guessLexer called without an open editor..')
+
+    def setLexerSelected(self, lexer):
+        name = lexer.name
+        for option in self.syntaxoptions:
+            if option[0] == name:
+                option[1].set(True)
+            else:
+                option[1].set(False)
+
     def runCurrent(self):
         """
             Save the current file, let the user specify the interpreter, and try to run the code in a new window.
@@ -401,7 +441,10 @@ class CodePadMainWindow(tk.Frame):
             interpreter = tkSimpleDialog.askstring('Set Interpreter',
                                              'Set the interpreter to run the code',
                                              initialvalue='python', parent=self)
-            subprocess.Popen('xterm -hold -T {2} -e {0} {1}'.format(interpreter, self.getCurrentEditor().filename, "\"CodePad Code Run\""), shell=True)
+            if interpreter:
+                subprocess.Popen('xterm -hold -T {2} -e {0} {1}'.format(interpreter,
+                                                                        self.getCurrentEditor().filename,
+                                                                        "\"CodePad Code Run\""), shell=True)
         else:
             tkMessageBox.showerror('Run Error', 'Must save the file in order to be run!')
 
@@ -410,7 +453,7 @@ class CodePadMainWindow(tk.Frame):
             Open a dialog to find text in the current editor.
         """
         currentEditor = self.getCurrentEditor()
-        textFindWidget(self.root, currentEditor, self)
+        extrawidgets.textFindWidget(self.root, currentEditor, self)
 
     def about(self):
         """
@@ -444,6 +487,7 @@ class CodePad(tk.Tk):
 
 def main():
     app = CodePad()
+    app.minsize(800, 600)
     app.mainloop()
 
 if __name__ == "__main__":
