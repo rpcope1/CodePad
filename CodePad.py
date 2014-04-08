@@ -25,13 +25,14 @@ import sys
 from functools import partial
 
 class CodePadEditor(tk.Frame):
-    def __init__(self, root, parent=None, lexer=TextLexer(), *args, **kwargs):
+    def __init__(self, root, mainwindow=None, parent=None, lexer=TextLexer(), *args, **kwargs):
         tk.Frame.__init__(self, *args, **kwargs)
         self.root = root
         self._filename = None
         self._saved = False
         self.editorFormatter = pygtkformatter.TkFormatter()
         self.editorLexer = lexer
+        self.mainwindow = mainwindow if mainwindow else root
         self.parent = parent if parent else root
         self.buildTextBox()
 
@@ -113,6 +114,14 @@ class CodePadEditor(tk.Frame):
             Redraw the line numberbox when we do something new.
         """
         self.linenumberbox.redraw()
+        try:
+            indx = self.textbox.index(tk.INSERT)
+            row, col = indx.split(".", 1)
+            self.mainwindow.setRow(row)
+            self.mainwindow.setCol(int(col)+1)
+        except Exception as e:
+            sys.stderr.write("Exception occured: {0}".format(e))
+
 
     def getTextContent(self):
         """
@@ -173,6 +182,8 @@ class CodePadEditor(tk.Frame):
         return self.editorLexer
 
 class CodePadMainWindow(tk.Frame):
+    STATUSPADY = 5
+    STATUSWIDTH = 10
     def __init__(self, root, *args, **kwargs):
         tk.Frame.__init__(self, root, *args, **kwargs)
         self.root = root
@@ -184,10 +195,12 @@ class CodePadMainWindow(tk.Frame):
         self.buildMenubar()
         self.editorNotebook.bind('<<NotebookTabChanged>>', self._onTabChange)
 
-
+        self.statusBar = self.buildStatusBar(self)
         self.editorNotebook.grid(row=0, column=0, sticky="NSEW")
+        self.statusBar.grid(row=1, column=0, sticky="EW")
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
+
         self.addNewEditor()
 
     def buildMenubar(self):
@@ -256,6 +269,37 @@ class CodePadMainWindow(tk.Frame):
         self.root.config(menu=self.menubar)
         return
 
+    def buildStatusBar(self, parent, *args, **kwargs):
+        self.statusBar = tk.Frame(parent, *args, **kwargs)
+        self.statusVar = tk.StringVar(self.statusBar)
+        self.statusVar.set('Status Bar')
+        statusLabel = tk.Label(self.statusBar, textvariable=self.statusVar, relief=tk.SUNKEN)
+        statusLabel.grid(row=0, column=0, sticky="EW")
+
+
+        self.colVar = tk.StringVar(self.statusBar)
+        self.colVar.set('Col: 0')
+        colLabel = tk.Label(self.statusBar, textvariable=self.colVar, relief=tk.SUNKEN, width=self.STATUSWIDTH)
+        colLabel.grid(row=0, column=1)
+
+        self.rowVar = tk.StringVar(self.statusBar)
+        self.rowVar.set('Row: 0')
+        rowLabel = tk.Label(self.statusBar, textvariable=self.rowVar, relief=tk.SUNKEN, width=self.STATUSWIDTH)
+        rowLabel.grid(row=0, column=2)
+
+        self.statusBar.grid_columnconfigure(0, weight=1)
+        self.statusBar.grid_rowconfigure(0, pad=self.STATUSPADY)
+        return self.statusBar
+
+    def setStatus(self, statusMessage):
+        self.statusVar.set(str(statusMessage))
+
+    def setRow(self, row):
+        self.rowVar.set('Row: {r}'.format(r=row))
+
+    def setCol(self, col):
+        self.colVar.set('Col: {c}'.format(c=col))
+
     def buildSyntaxSubmenus(self, rootmenu):
         syntaxsubmenus = []
         syntaxoptions = []
@@ -284,7 +328,7 @@ class CodePadMainWindow(tk.Frame):
             Opens a new editor tab.
             If filename is specified, we will try and open in in ASCII mode and use it to fill the new textbox.
         """
-        ed = CodePadEditor(self.root, self.editorNotebook)
+        ed = CodePadEditor(self.root, self, self.editorNotebook)
         self.openEditors.append(ed)
         if not filename:
             ed.setFileName("Untitled")
@@ -460,7 +504,7 @@ class CodePadMainWindow(tk.Frame):
         """
             Show the about box.
         """
-        aboutMsg = 'CodePad Version {version}\nWritten 2014 by Robert Cope'.format(version=__version__)
+        aboutMsg = "CodePad Version {version}\nWritten 2014 by Robert Cope".format(version=__version__)
         tkMessageBox.showinfo('About', aboutMsg, parent=self)
 
     @property

@@ -1,5 +1,5 @@
 __author__ = 'Robert Cope'
-__version__ = 'v0.1'
+__version__ = 'v0.2'
 
 try:
     import Tkinter as tk
@@ -120,3 +120,4 @@ class CustomText(tk.Text):
             rename {widget} _{widget}
             interp alias {{}} ::{widget} {{}} widget_proxy {widget} _{widget}
         '''.format(widget=str(self)))
+
