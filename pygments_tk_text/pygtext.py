@@ -53,25 +53,33 @@ class PygmentsText(Text):
     
     def insertFormatted(self, location, text):
         """Similar to self.insert(), but instead of plain text, uses pygments to
-        provide a set of formmating tags. The formatter should return stream of
+        provide a set of formatting tags. The formatter should return stream of
         tagged lines of the format tagName:payload_string\n, which this class then
         inserts in tagged way. Note that if the given text is smaller than a
         "complete syntactic unit" of the language being syntax-highlighted, insertFormatted()
         probably won't result in correct syntax highlighting. Use self.reformatRange()
         or self.reformatEverything() to reformat a larger enclosing range if
         you're making micro-inserts."""
-        
+
+        #RPC: Added this to stop the formatter from replacing liternal '\n'.
+        text = string.replace(text, r'\n', chr(1))
         textTagged = pygments.highlight(text, self.lexer, self.formatter)
 
         insertList = []
+        #inQuotes = False
         for chunk in textTagged.splitlines():
             # split tagged lines into component parts
             tagEnd = string.index(chunk, ':')
             tagName, stringPart = chunk[:tagEnd], chunk[tagEnd+1:]
-            
+
             # clean up / unquote / reformat data as necessary
+            #num = stringPart.count('"') + stringPart.count("'")
+
             stringPart = string.replace(stringPart, r'\n', "\n")
-            
+            #Convert literal '\n' back.
+            stringPart = string.replace(stringPart, chr(1), r'\n')
+            #print stringPart
+
             # add to the insert list
             insertList.append(stringPart)
             insertList.append(tagName)
@@ -89,6 +97,7 @@ class PygmentsText(Text):
         
         # if something to insert, do it (actual typed returns are the missing
         # else case here; net-net they don't get formatted through pygments)
+        #print insertList
         if insertList:
             self.insert(location, *insertList)
 
@@ -133,16 +142,19 @@ class PygmentsText(Text):
         savePosn = self.index(INSERT)
         linenum = int(savePosn.split('.')[0])
         startline = linenum
-        
+        extraline = None
+
+        #RPC: Had to change this to make newlines work correctly when entered at the beginning of the line.
         if key.char in {"\n", "\r"}:
             # breaking a line, so reformat this line and the one before
-            startline = linenum - 1 if linenum > 1 else 1
-            
-        self.reformatRange("%d.0"%(startline), "%d.end"%(linenum))
+            extraline = linenum - 1 if linenum > 1 else 1
+
+        self.reformatRange("{0}.0".format(startline), "{0}.end".format(linenum))
             
         self.see(savePosn)
         self.mark_set(INSERT, savePosn)
-    
+        if extraline:
+            self.reformatRange("{0}.0".format(extraline), "{0}.end".format(extraline))
     
     def reformatRange(self, start, end):
         """Reformat the given range of text. """

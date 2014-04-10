@@ -228,11 +228,9 @@ class CodePadMainWindow(tk.Frame):
 
         self.editmenu = tk.Menu(self)
         self.editmenu.add_command(label="Cut", command=self.cutCurrent, accelerator="Ctrl+X")
-        self.root.bind('<Control-Key-x>', lambda e: self.cutCurrent())
         self.editmenu.add_command(label="Copy", command=self.copyCurrent, accelerator="Ctrl+C")
-        self.root.bind('<Control-Key-c>', lambda e: self.copyCurrent())
         self.editmenu.add_command(label="Paste", command=self.pasteCurrent, accelerator="Ctrl+V")
-        self.root.bind('<Control-Key-v>', lambda e: self.pasteCurrent())
+        self.root.bind('<<Paste>>', self.pasteWriteOverOverride)
         self.menubar.add_cascade(menu=self.editmenu, label='Edit')
 
         self.viewmenu = tk.Menu(self)
@@ -334,9 +332,10 @@ class CodePadMainWindow(tk.Frame):
             ed.setFileName("Untitled")
         else:
             try:
-                contents = ''
-                with open(filename, 'r') as f:
-                    contents = f.read()
+                contents = """"""
+                with open(filename, 'rb') as f:
+                    contents += f.read()
+                contents = contents
             except:
                 tkMessageBox.showerror('Could not read file!', 'Failed to read file correctly!')
                 contents = ''
@@ -394,6 +393,7 @@ class CodePadMainWindow(tk.Frame):
             currentEditor.setFileName(filename)
             currentEditor.setSaved(True)
             self.setTitle(currentEditor, filename)
+            self.guessLexer()
         with open(currentEditor.filename, 'w') as f:
             f.write(currentEditor.getTextContent())
         return True
@@ -518,6 +518,15 @@ class CodePadMainWindow(tk.Frame):
             return True
         else:
             return False
+    @staticmethod
+    def pasteWriteOverOverride(event):
+        try:
+            event.widget.delete('sel.first', 'sel.last')
+        except tk.TclError:
+            pass #We didn't have anything selected.
+
+
+
 
 
 class CodePad(tk.Tk):
