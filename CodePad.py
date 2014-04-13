@@ -484,7 +484,10 @@ class CodePadMainWindow(tk.Frame):
         self.editorNotebook.tab(ed, text=title)
 
     def currentTabModified(self, *args):
-        #print args
+        """
+            This is the callback for when the modified variable of the current variable changes.
+            This allows us to indicate that the file has changed in the tab title.
+        """
         currentEditor = self.getCurrentEditor()
         if currentEditor.modified:
             self.setTabTitle(currentEditor, "*{0}".format(currentEditor.title), False)
@@ -520,6 +523,15 @@ class CodePadMainWindow(tk.Frame):
         """
         currentEditor = self.getCurrentEditor()
         return self._closeTab(currentEditor)
+
+    def cleanUpOnClose(self):
+        for editor in self.openEditors:
+            if editor.modified:
+               self.selectEditor(editor)
+               if tkMessageBox.askyesno('Save File Modified File?', 'Save this file before closing?', parent=self):
+                   self.saveFile()
+            else:
+                self._closeTab(editor)
 
     def _closeTab(self, editor):
         """
@@ -631,7 +643,9 @@ class CodePad(tk.Tk):
         self.MainWindow = CodePadMainWindow(self)
         self.MainWindow.pack(fill=tk.BOTH, expand=True)
 
-
+    def destroy(self):
+        self.MainWindow.cleanUpOnClose()
+        tk.Tk.destroy(self)
 
 
 def main():
