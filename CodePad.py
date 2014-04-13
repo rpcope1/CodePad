@@ -4,7 +4,7 @@
 #   All Rights Reserved
 
 __author__ = 'Robert Cope'
-__version__ = 'v0.2 (Alpha)'
+__version__ = 'v0.2.1 (Alpha)'
 __license__ = 'LGPL'
 
 try:
@@ -25,11 +25,16 @@ import sys
 from functools import partial
 
 class CodePadEditor(tk.Frame):
-    def __init__(self, root, mainwindow=None, parent=None, lexer=TextLexer(), *args, **kwargs):
+    def __init__(self, root, mainwindow=None, parent=None, lexer=TextLexer(), hashFunction=hash, *args, **kwargs):
         tk.Frame.__init__(self, *args, **kwargs)
         self.root = root
         self._filename = None
-        self._saved = False
+        self._hashFunction = hashFunction
+        self._saved = tk.BooleanVar()
+        self._saveHash = 0
+        self._modified = tk.BooleanVar()
+        self._modificationCallbackID = None
+        self._title = None
         self.editorFormatter = pygtkformatter.TkFormatter()
         self.editorLexer = lexer
         self.mainwindow = mainwindow if mainwindow else root
@@ -75,7 +80,8 @@ class CodePadEditor(tk.Frame):
         """
             Set the saved state (should beTrue if the file is now on disk, False othewise)
         """
-        self._saved = state
+        self._saved.set(state)
+        self.setModifiedFalse()
 
     def setFileName(self, name):
         """
@@ -119,6 +125,10 @@ class CodePadEditor(tk.Frame):
             row, col = indx.split(".", 1)
             self.mainwindow.setRow(row)
             self.mainwindow.setCol(int(col)+1)
+            if self._hashFunction(self.getTextContent()) != self._saveHash:
+                self._modified.set(True)
+            else:
+                self._modified.set(False)
         except Exception as e:
             sys.stderr.write("Exception occured: {0}".format(e))
 
@@ -130,6 +140,10 @@ class CodePadEditor(tk.Frame):
         return self.textbox.get("1.0", tk.END)
 
     def guessLexer(self):
+        """
+            Call this to try to use the Pygments lexer guess function on this editor.
+            The lexer will be set to whatever the best guess was.
+        """
         try:
             newlexer = guess_lexer_for_filename(self.filename, self.getTextContent())
         except ClassNotFound:
@@ -138,11 +152,18 @@ class CodePadEditor(tk.Frame):
         return self.lexer
 
     def setLexer(self, lexer):
+        """
+            Set the Lexer to an open lexer instance, and then reformat the code highlighting.
+        """
         self.editorLexer = lexer
         self.textbox.setLexer(lexer)
         self.textbox.reformatEverything()
 
     def setLexerByName(self, lexername):
+        """
+            Give a valid pygments Lexer name, and if we find it, use it as our new lexer.
+            This will reformat the code highlighting.
+        """
         try:
             newlexer = get_lexer_by_name(lexername.lower(), stripall=True)
         except ClassNotFound:
@@ -152,6 +173,24 @@ class CodePadEditor(tk.Frame):
         self.setLexer(newlexer)
         return self.lexer
 
+    def setModifiedFalse(self):
+        """
+            Set the modification state to false, and update the save hash (this should be called on save).
+        """
+        self._saveHash = self._hashFunction(self.getTextContent())
+        self._modified.set(False)
+
+    def setModificationCallback(self, callback):
+        if self._modificationCallbackID:
+            self._modified.trace_vdelete('w', self._modificationCallbackID)
+        self._modificationCallbackID = self._modified.trace_variable('w', callback)
+
+    def setTitle(self, title):
+        self._title = title
+
+    @property
+    def title(self):
+        return self._title
 
     @property
     def filename(self):
@@ -165,7 +204,21 @@ class CodePadEditor(tk.Frame):
         """
             Return if the editor has been saved at any point or not.
         """
-        return self._saved
+        return self._saved.get()
+
+    @property
+    def modified(self):
+        """
+            Return if the text in the editor has been modified recently.
+        """
+        return self._modified.get()
+
+    @property
+    def saveHash(self):
+        """
+            Return the hash that was generated when the file was last saved.
+        """
+        return self._saveHash
 
     @property
     def hasContents(self):
@@ -211,34 +264,40 @@ class CodePadMainWindow(tk.Frame):
         """
         self.menubar = tk.Menu(self)
 
-        self.filemenu = tk.Menu(self)
+        self.filemenu = tk.Menu(self.menubar, tearoff=0)
         self.filemenu.add_command(label="New", command=self.addNewEditor, accelerator="Ctrl+N")
         self.root.bind('<Control-Key-n>', lambda e: self.addNewEditor())
         self.filemenu.add_command(label="Open...", command=self.openFile, accelerator="Ctrl+O")
         self.root.bind('<Control-Key-o>', lambda e: self.openFile())
         self.filemenu.add_command(label="Save", command=self.saveFile, accelerator="Ctrl+S")
-        self.root.bind('<Control-Key-s>', lambda e :self.saveFile())
-        self.filemenu.add_command(label="Save as...")
+        self.root.bind('<Control-Key-s>', lambda e: self.saveFile())
+        self.filemenu.add_command(label="Save as...", command=self.saveFileAs, accelerator="Shift+Ctrl+S")
+        self.root.bind('<Control-Key-S>', lambda e: self.saveFileAs())
         self.filemenu.add_command(label='Close Tab', command=self.closeCurrentTab, accelerator="Ctrl+W")
         self.root.bind('<Control-Key-w>', lambda e: self.closeCurrentTab())
+        self.filemenu.add_separator()
+        self.filemenu.add_command(label='Print', accelerator="Ctrl+P")
+
+        self.filemenu.add_command(label='Print Preview', accelerator="Shift+Ctrl+P")
+
         self.filemenu.add_separator()
         self.filemenu.add_command(label="Exit", command=self.root.destroy, accelerator="Ctrl+Q")
         self.root.bind('<Control-Key-q>', lambda e: self.root.destroy())
         self.menubar.add_cascade(menu=self.filemenu, label='File')
 
-        self.editmenu = tk.Menu(self)
+        self.editmenu = tk.Menu(self.menubar, tearoff=0)
         self.editmenu.add_command(label="Cut", command=self.cutCurrent, accelerator="Ctrl+X")
         self.editmenu.add_command(label="Copy", command=self.copyCurrent, accelerator="Ctrl+C")
         self.editmenu.add_command(label="Paste", command=self.pasteCurrent, accelerator="Ctrl+V")
         self.root.bind('<<Paste>>', self.pasteWriteOverOverride)
         self.menubar.add_cascade(menu=self.editmenu, label='Edit')
 
-        self.viewmenu = tk.Menu(self)
+        self.viewmenu = tk.Menu(self.menubar, tearoff=0)
         self.viewmenu.add_command(label="Find", command=self.findTextCurrent, accelerator="Ctrl+F")
         self.root.bind('<Control-Key-f>', lambda e: self.findTextCurrent())
         self.viewmenu.add_command(label="Replace", accelerator="Ctrl+R")
         self.viewmenu.add_separator()
-        self.syntaxmenu = tk.Menu(self)
+        self.syntaxmenu = tk.Menu(self.menubar, tearoff=0)
         self.syntaxmenu.add_command(label="Guess Syntax...", command=self.guessLexer)
         self.syntaxmenu.add_separator()
         self.syntaxsubmenus, self.syntaxoptions = self.buildSyntaxSubmenus(self.syntaxmenu)
@@ -251,12 +310,12 @@ class CodePadMainWindow(tk.Frame):
 
         #self.menubar.add_cascade(menu=self.settingsmenu, label='Settings')
 
-        self.projectmenu = tk.Menu(self)
+        self.projectmenu = tk.Menu(self.menubar)
         self.projectmenu.add_command(label='Run...', command=self.runCurrent, accelerator="Alt+R")
         self.root.bind('<Alt-Key-r>', lambda e: self.runCurrent())
         self.menubar.add_cascade(label='Project', menu=self.projectmenu)
 
-        self.helpmenu = tk.Menu(self)
+        self.helpmenu = tk.Menu(self.menubar, tearoff=0)
         self.helpmenu.add_command(label="Help Contents")
         self.helpmenu.add_command(label="About", command=self.about)
 
@@ -308,7 +367,7 @@ class CodePadMainWindow(tk.Frame):
                 if currentmenu:
 
                     rootmenu.add_cascade(label="Submenu {0}-{1}".format(firstLetter, startLetter), menu=currentmenu)
-                currentmenu = tk.Menu(self)
+                currentmenu = tk.Menu(rootmenu, tearoff=0)
                 firstLetter = lexer[0][0]
                 syntaxsubmenus.append(currentmenu)
             startLetter = lexer[0][0]
@@ -343,7 +402,10 @@ class CodePadMainWindow(tk.Frame):
             ed.setSaved(True)
             ed.setTextContent(contents)
             ed.guessLexer()
-        self.editorNotebook.add(ed, text=ed.filename, sticky="NSEW")
+            ed.setModifiedFalse()
+            ed.setModificationCallback(self.currentTabModified)
+        self.editorNotebook.add(ed, sticky="NSEW")
+        self.setTabTitle(ed, ed.filename)
         self.selectEditor(ed)
         return ed
 
@@ -371,6 +433,7 @@ class CodePadMainWindow(tk.Frame):
             self.openFiles[filename] = ed
             if closeOld:
                 self._closeTab(oldeditor)
+
         else:
             self.selectEditor(self.openFiles[filename])
 
@@ -387,22 +450,46 @@ class CodePadMainWindow(tk.Frame):
         """
         currentEditor = self.getCurrentEditor()
         if not currentEditor.saved:
-            filename = tkFileDialog.asksaveasfilename()
-            if not filename:
-                return False
-            currentEditor.setFileName(filename)
-            currentEditor.setSaved(True)
-            self.setTitle(currentEditor, filename)
-            self.guessLexer()
+            return self.saveFileAs()
+        else:
+            with open(currentEditor.filename, 'w') as f:
+                f.write(currentEditor.getTextContent())
+            currentEditor.setModifiedFalse()
+            return True
+
+    def saveFileAs(self):
+        """
+            Let the user select to save the file as (then save the file).
+        """
+        currentEditor = self.getCurrentEditor()
+        filename = tkFileDialog.asksaveasfilename()
+        if not filename:
+            return False
+        currentEditor.setFileName(filename)
+        currentEditor.setSaved(True)
+        self.setTabTitle(currentEditor, filename)
+        self.guessLexer()
         with open(currentEditor.filename, 'w') as f:
             f.write(currentEditor.getTextContent())
+        currentEditor.setModifiedFalse()
         return True
 
-    def setTitle(self, ed, title):
+
+    def setTabTitle(self, ed, title, setInternalTitle=True):
         """
             Set the tab title for the specified editor.
         """
+        if setInternalTitle:
+            ed.setTitle(title)
         self.editorNotebook.tab(ed, text=title)
+
+    def currentTabModified(self, *args):
+        #print args
+        currentEditor = self.getCurrentEditor()
+        if currentEditor.modified:
+            self.setTabTitle(currentEditor, "*{0}".format(currentEditor.title), False)
+        else:
+            self.setTabTitle(currentEditor, currentEditor.title, False)
 
     def cutCurrent(self):
         """
@@ -453,6 +540,13 @@ class CodePadMainWindow(tk.Frame):
             self.setLexerSelected(currentLexer)
         else:
             sys.stderr.write('_onTabChange called without an open editor..')
+        self.setRootTitleFilename(currentEditor.filename)
+
+    def setRootTitleFilename(self, filename):
+        """
+            Sets the root window title to have the filename then the editor title string.
+        """
+        self.root.wm_title('{0} - {1}'.format(filename, self.root.TITLESTRING))
 
     def setLexer(self, lexername):
         currentEditor = self.getCurrentEditor()
@@ -530,9 +624,10 @@ class CodePadMainWindow(tk.Frame):
 
 
 class CodePad(tk.Tk):
+    TITLESTRING = 'CodePad {version}'.format(version=__version__)
     def __init__(self, *args, **kwargs):
         tk.Tk.__init__(self, *args, **kwargs)
-        self.wm_title('CodePad {version}'.format(version=__version__))
+        self.wm_title(self.TITLESTRING)
         self.MainWindow = CodePadMainWindow(self)
         self.MainWindow.pack(fill=tk.BOTH, expand=True)
 
