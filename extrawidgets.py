@@ -121,3 +121,22 @@ class CustomText(tk.Text):
             interp alias {{}} ::{widget} {{}} widget_proxy {widget} _{widget}
         '''.format(widget=str(self)))
 
+class ScrollListbox(tk.Frame):
+    """
+        A listbox with the vertical scrollbar built in.
+    """
+    def __init__(self, parent, *args, **kwargs):
+        tk.Frame.__init__(self, parent)
+        self._lbox = tk.Listbox(self, *args, **kwargs)
+        self._vscroll = tk.Scrollbar(self, orient=tk.VERTICAL)
+        self._lbox.pack(fill=tk.BOTH, expand=1, side=tk.LEFT)
+        self._vscroll.pack(fill=tk.Y, side=tk.RIGHT)
+
+    @property
+    def Listbox(self):
+        return self._lbox
+
+    @property
+    def Scrollbar(self):
+        return self._vscroll
+

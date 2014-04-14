@@ -2,9 +2,10 @@
 #   Python Tkinter based Code editor
 #   Licensed LGPL
 #   All Rights Reserved
+import traceback
 
 __author__ = 'Robert Cope'
-__version__ = 'v0.2.1 (Alpha)'
+__version__ = 'v0.2.2 (Alpha)'
 __license__ = 'LGPL'
 
 try:
@@ -23,6 +24,10 @@ import pygments_tk_text.pygtext as pygtext
 import pygments_tk_text.tkformatter as pygtkformatter
 import sys
 from functools import partial
+import printer
+import platform
+
+SYSTEMTYPE = platform.system()
 
 class CodePadEditor(tk.Frame):
     def __init__(self, root, mainwindow=None, parent=None, lexer=TextLexer(), hashFunction=hash, *args, **kwargs):
@@ -34,7 +39,6 @@ class CodePadEditor(tk.Frame):
         self._saveHash = 0
         self._modified = tk.BooleanVar()
         self._modificationCallbackID = None
-        self._title = None
         self.editorFormatter = pygtkformatter.TkFormatter()
         self.editorLexer = lexer
         self.mainwindow = mainwindow if mainwindow else root
@@ -181,16 +185,13 @@ class CodePadEditor(tk.Frame):
         self._modified.set(False)
 
     def setModificationCallback(self, callback):
+        """
+            Allows the parent of the editor to set the callback for the modification variable.
+            The callback will get called when the file is modified.
+        """
         if self._modificationCallbackID:
             self._modified.trace_vdelete('w', self._modificationCallbackID)
         self._modificationCallbackID = self._modified.trace_variable('w', callback)
-
-    def setTitle(self, title):
-        self._title = title
-
-    @property
-    def title(self):
-        return self._title
 
     @property
     def filename(self):
@@ -276,10 +277,8 @@ class CodePadMainWindow(tk.Frame):
         self.filemenu.add_command(label='Close Tab', command=self.closeCurrentTab, accelerator="Ctrl+W")
         self.root.bind('<Control-Key-w>', lambda e: self.closeCurrentTab())
         self.filemenu.add_separator()
-        self.filemenu.add_command(label='Print', accelerator="Ctrl+P")
-
-        self.filemenu.add_command(label='Print Preview', accelerator="Shift+Ctrl+P")
-
+        self.filemenu.add_command(label='Print', command=self.printCurrent, accelerator="Ctrl+P")
+        self.root.bind('<Control-Key-p>', lambda e: self.printCurrent())
         self.filemenu.add_separator()
         self.filemenu.add_command(label="Exit", command=self.root.destroy, accelerator="Ctrl+Q")
         self.root.bind('<Control-Key-q>', lambda e: self.root.destroy())
@@ -398,6 +397,7 @@ class CodePadMainWindow(tk.Frame):
             except:
                 tkMessageBox.showerror('Could not read file!', 'Failed to read file correctly!')
                 contents = ''
+                traceback.print_exc()
             ed.setFileName(filename)
             ed.setSaved(True)
             ed.setTextContent(contents)
@@ -427,15 +427,27 @@ class CodePadMainWindow(tk.Frame):
         if not filename:
             return
         if filename not in self.openFiles:
-            oldeditor = self.getCurrentEditor()
-            closeOld = self.isCurrentEmpty
-            ed = self.addNewEditor(filename)
-            self.openFiles[filename] = ed
-            if closeOld:
-                self._closeTab(oldeditor)
-
+            self._openFile(filename)
         else:
             self.selectEditor(self.openFiles[filename])
+
+    def loadFiles(self, args):
+        """
+            This loads a list of files, and should be called at startup.
+        """
+        for filename in args:
+            self._openFile(filename)
+
+    def _openFile(self, filename):
+        """
+            The private method for loading files into new editors.
+        """
+        oldeditor = self.getCurrentEditor()
+        closeOld = self.isCurrentEmpty
+        ed = self.addNewEditor(filename)
+        self.openFiles[filename] = ed
+        if closeOld:
+            self._closeTab(oldeditor)
 
     def getCurrentEditor(self):
         """
@@ -474,13 +486,25 @@ class CodePadMainWindow(tk.Frame):
         currentEditor.setModifiedFalse()
         return True
 
+    def printCurrent(self):
+        currentEditor = self.getCurrentEditor()
+        if SYSTEMTYPE == 'Linux':
+            if not currentEditor.saved or currentEditor.modified:
+                if not self.saveFile():
+                    tkMessageBox.showwarning('Save File to Print!', 'File must be saved to print!', parent=self)
+                    return
+            printDialog = printer.PrintDialogLinux(self, currentEditor.filename)
+            self.wait_window(printDialog)
+        elif SYSTEMTYPE == 'Windows':
+            printDialog = printer.PrintDialogLinux(self, currentEditor.getTextContent())
+            self.wait_window(printDialog)
+        else:
+            tkMessageBox.showerror('Printing Not Supported!', 'Printing not supported on this platform!', parent=self)
 
-    def setTabTitle(self, ed, title, setInternalTitle=True):
+    def setTabTitle(self, ed, title):
         """
             Set the tab title for the specified editor.
         """
-        if setInternalTitle:
-            ed.setTitle(title)
         self.editorNotebook.tab(ed, text=title)
 
     def currentTabModified(self, *args):
@@ -490,9 +514,9 @@ class CodePadMainWindow(tk.Frame):
         """
         currentEditor = self.getCurrentEditor()
         if currentEditor.modified:
-            self.setTabTitle(currentEditor, "*{0}".format(currentEditor.title), False)
+            self.setTabTitle(currentEditor, "*{0}".format(currentEditor.filename))
         else:
-            self.setTabTitle(currentEditor, currentEditor.title, False)
+            self.setTabTitle(currentEditor, currentEditor.filename)
 
     def cutCurrent(self):
         """
@@ -592,10 +616,16 @@ class CodePadMainWindow(tk.Frame):
             interpreter = tkSimpleDialog.askstring('Set Interpreter',
                                              'Set the interpreter to run the code',
                                              initialvalue='python', parent=self)
-            if interpreter:
-                subprocess.Popen('xterm -hold -T {2} -e {0} {1}'.format(interpreter,
-                                                                        self.getCurrentEditor().filename,
-                                                                        "\"CodePad Code Run\""), shell=True)
+            if interpreter and SYSTEMTYPE == 'Linux':
+                subprocess.Popen('xterm -hold -T {title} -e {intrp} {fn}'
+                                 ''.format(intrp=interpreter, fn=self.getCurrentEditor().filename,
+                                           title="\"CodePad Code Run\""),
+                                 shell=True)
+            elif interpreter and SYSTEMTYPE == 'Windows':
+                subprocess.Popen('cmd.exe /K /u {intrp} {fn}'.format(intrp=interpreter,
+                                                                     fn=self.getCurrentEditor().filename), shell=True)
+            elif interpreter:
+                tkMessageBox.showerror('Run Not Supported!', 'Run not supported on this platform', parent=self)
         else:
             tkMessageBox.showerror('Run Error', 'Must save the file in order to be run!')
 
@@ -643,15 +673,19 @@ class CodePad(tk.Tk):
         self.MainWindow = CodePadMainWindow(self)
         self.MainWindow.pack(fill=tk.BOTH, expand=True)
 
+    def cmdLineArgs(self, args):
+        self.MainWindow.loadFiles(args)
+
     def destroy(self):
         self.MainWindow.cleanUpOnClose()
         tk.Tk.destroy(self)
 
 
-def main():
+def main(args):
     app = CodePad()
+    app.cmdLineArgs(args)
     app.minsize(800, 600)
     app.mainloop()
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
