@@ -393,9 +393,24 @@ class CodePadMainWindow(tk.Frame):
                 contents = """"""
                 with open(filename, 'rb') as f:
                     contents += f.read()
-                contents = contents
+                try:
+                    newcontents = contents.encode('utf-8')
+                except UnicodeDecodeError:
+                    tkMessageBox.showwarning('Non-UTF-8 Characters', 'Non-UTF-8 characters were detected in this file.\n'
+                                                                     'Loading will proceed with these replaced.\n'
+                                                                     'Continue at your own risk!', parent=self)
+                    try:
+                        newcontents = contents.encode('utf-8', 'xmlcharrefreplace')
+                    except UnicodeDecodeError:
+                        tkMessageBox.showerror('Non-UTF-8 Characters', 'Non-UTF-8 characters were detected in this file.\n'
+                                                                     'Loading could not replace characters.\n'
+                                                                     'Bad characters will be ignored!\n'
+                                                                     'Continue at your own risk!', parent=self)
+                        newcontents = contents.encode('utf-8', 'ignore')
+                contents = newcontents
             except:
-                tkMessageBox.showerror('Could not read file!', 'Failed to read file correctly!')
+                tkMessageBox.showerror('Could not read file!', 'Failed to read file correctly!\n'
+                                                               'You may have selected a non-text file.\n')
                 contents = ''
                 traceback.print_exc()
             ed.setFileName(filename)
