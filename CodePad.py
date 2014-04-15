@@ -49,7 +49,8 @@ class CodePadEditor(tk.Frame):
         """
             Should be called at initialization, puts the text box and scroll bars in place.
         """
-        self.textbox = pygtext.PygmentsText(self, self.editorLexer, self.editorFormatter, wrap=tk.NONE)
+        self.textbox = pygtext.PygmentsText(self, self.editorLexer, self.editorFormatter,
+                                            wrap=tk.NONE, autoseparators=False, undo=True)
         self.textbox.grid(row=0, column=1, sticky="NSEW")
         self.textbox.tag_configure("search", background="green")
         self.grid_columnconfigure(1, weight=1)
@@ -115,9 +116,26 @@ class CodePadEditor(tk.Frame):
             self.textbox.delete("sel.first", "sel.last")
         except tk.TclError, e:
             pass
-        self.textbox.insertFormatted("end", newtext)
+        self.textbox.insertFormatted("end", newtext, True)
         self.linenumberbox.redraw()
         
+    def undo(self):
+        """
+            Undo last operation to the text box.
+        """
+        try:
+            self.textbox.edit_undo()
+        except tk.TclError:
+            pass
+
+    def redo(self):
+        """
+            Redo last change undone on the text box.
+        """
+        try:
+            self.textbox.edit_redo()
+        except tk.TclError:
+            pass
 
     def _on_change(self, event):
         """
@@ -285,6 +303,11 @@ class CodePadMainWindow(tk.Frame):
         self.menubar.add_cascade(menu=self.filemenu, label='File')
 
         self.editmenu = tk.Menu(self.menubar, tearoff=0)
+        self.editmenu.add_command(label="Undo", command=self.undoCurrent, accelerator="Ctrl+Z")
+        self.root.bind('<Control-Key-z>', lambda e: self.undoCurrent())
+        self.editmenu.add_command(label="Redo", command=self.redoCurrent, accelerator="Shift+Ctrl+Z")
+        self.root.bind('<Control-Key-Z>', lambda e: self.redoCurrent())
+        self.editmenu.add_separator()
         self.editmenu.add_command(label="Cut", command=self.cutCurrent, accelerator="Ctrl+X")
         self.editmenu.add_command(label="Copy", command=self.copyCurrent, accelerator="Ctrl+C")
         self.editmenu.add_command(label="Paste", command=self.pasteCurrent, accelerator="Ctrl+V")
@@ -532,6 +555,17 @@ class CodePadMainWindow(tk.Frame):
             self.setTabTitle(currentEditor, "*{0}".format(currentEditor.filename))
         else:
             self.setTabTitle(currentEditor, currentEditor.filename)
+
+    def undoCurrent(self):
+        """
+            Undo last operation on current editor
+        """
+        currentEditor = self.getCurrentEditor()
+        currentEditor.undo()
+
+    def redoCurrent(self):
+        currentEditor = self.getCurrentEditor()
+        currentEditor.redo()
 
     def cutCurrent(self):
         """

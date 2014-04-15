@@ -51,7 +51,7 @@ class PygmentsText(Text):
         self.bind('<Control-l>',  lambda *args: self.reformatEverything() )
 
     
-    def insertFormatted(self, location, text):
+    def insertFormatted(self, location, text, add_sep=False):
         """Similar to self.insert(), but instead of plain text, uses pygments to
         provide a set of formatting tags. The formatter should return stream of
         tagged lines of the format tagName:payload_string\n, which this class then
@@ -62,6 +62,8 @@ class PygmentsText(Text):
         you're making micro-inserts."""
 
         #RPC: Added this to stop the formatter from replacing liternal '\n'.
+        if add_sep:
+            self.edit_separator()
         text = string.replace(text, r'\n', chr(1))
         textTagged = pygments.highlight(text, self.lexer, self.formatter)
 
@@ -138,7 +140,9 @@ class PygmentsText(Text):
         localize the reformatting, usually to a single line, with a fall back to
         several lines. If this doesn't catch it, the user can always type a key
         (default Control-L) bound to self.reformatEverything()."""
-            
+
+        #TODO (RPC): Fix the way separators are added for a consistent and smooth undo/redo operation.
+        self.edit_separator()
         savePosn = self.index(INSERT)
         linenum = int(savePosn.split('.')[0])
         startline = linenum
